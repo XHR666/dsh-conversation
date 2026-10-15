@@ -70,10 +70,10 @@ Anything outside this table is unverified.
 An immutable tag is preferred:
 
 ```sh
-dsh plugin --profile web add github:huangfuren/dsh-conversation#v1.3.0
+dsh plugin --profile web add github:huangfuren/dsh-conversation#v1.3.1
 ```
 
-Tracking the development branch (no tag published yet? use this):
+Tracking the development branch (need a commit that is not released yet? use this):
 
 ```sh
 dsh plugin --profile web add github:huangfuren/dsh-conversation
