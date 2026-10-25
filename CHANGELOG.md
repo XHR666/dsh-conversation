@@ -6,6 +6,24 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **修复「面板展开状态下刷新页面 → 整个槽位入口（含常驻『大纲』按钮）消失」的崩溃。**
+  - 之前的行为：`HistoryOutlinePanelInner` 在 `currentSessionNodes` 的 `useMemo` 回调里**条件**调用宿主注入的
+    `useSessions`（一个真正的 React hook）。挂载轮（`hookNodes` 为空、回退分支执行）它连同
+    `use-sync-external-store` shim 内部的 hook 一起被追加进 hook 链；下一轮渲染（面板自身 effect 的
+    `bump()` 必然触发一次）该 memo 因 deps 未变跳过回调，链上后续 hook 与上一轮错位配对，React 在
+    比较 memo deps 时对 `undefined` 读 `.length` 抛 `TypeError`，宿主槽位边界捕获后把**整个槽位入口**
+    替换为空节点。触发条件恰是「面板展开（`pinned` 在存储键缺失时默认 `true`）+ 刷新时会话数据尚未
+    就绪」，因此「收起时刷新正常」「无痕窗口（空存储 ⇒ 默认展开）无面板」与「清掉全部
+    `dsh-conversation:*` 键后仍崩」是同一机制的三种表现。
+  - 现在的行为：`useSessions` 与其它宿主 hook 一样只在组件**顶层**调用（每轮渲染无条件执行，选择结果
+    交给 `useMemo` 的 deps），回退数据经 `conversationNodesOf` 归一后进 memo。数据缺失时面板渲染空态，
+    槽位入口与常驻按钮在任何时序下都不再崩溃，兑现 README「宿主 API 降级不拖垮同槽位」的承诺。
+  - 回归判据：新增 `test/hooks-order.test.js` —— 用"按 deps 跳过 memo"的最小 React 桩驱动组件渲染两轮，
+    断言两轮 hook 调用序列完全一致（旧代码必红）；并断言 `useChat` 缺席时回退路径仍能渲染大纲、
+    数据缺失时渲染空态。`internals` 相应导出 `HistoryOutlinePanelInner` 供测试驱动。
+
 ### Changed
 
 - **文档：README 默认语言改为中文。** 语言约定统一为 `README.md`（中文，默认入口）+

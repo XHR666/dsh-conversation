@@ -109,7 +109,10 @@ npm run verify   # check + test (bound to prepack, so a failing test cannot be p
 host-provided external modules (this plugin uses `react` alone). Relative requires would not resolve in
 the real loader, which is why the client stays a single self-contained file — the same choice
 `dsh-grafana` makes (its `client.js` is ~67 KB). `test/client.test.js` therefore loads the module through
-a minimal loader stub and asserts the pure helpers it exports as `internals`.
+a minimal loader stub and asserts the pure helpers it exports as `internals`; `test/hooks-order.test.js`
+additionally drives `internals.HistoryOutlinePanelInner` through two renders with a React stub that skips
+memo callbacks on unchanged deps, locking in the Rules-of-Hooks contract that host-injected hooks are
+only ever called at the top level of the component.
 
 ## Known limitations
 

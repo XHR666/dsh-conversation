@@ -110,7 +110,9 @@ npm run verify   # check + test（已绑定 prepack，测试不过打不出包�
 `client.js` 不是 ES 模块：dsh 客户端模块加载器按 `window.__ModuleLoader__.load({ id, factory })` 加载它，
 `factory` 里的 `require` **只能解析宿主提供的外部模块**（本插件只用到 `react`），相对路径依赖在真实加载器里
 解析不了 —— 所以客户端保持自包含单文件（`dsh-grafana` 的 `client.js` 约 67 KB，同样如此）。
-`test/client.test.js` 用最小加载器桩把它 load 进来，断言它导出的纯函数 `internals`。
+`test/client.test.js` 用最小加载器桩把它 load 进来，断言它导出的纯函数 `internals`；
+`test/hooks-order.test.js` 则用「会按 deps 跳过 memo」的 React 桩驱动 `internals.HistoryOutlinePanelInner`
+渲染两轮，锁定「宿主 hook 只在组件顶层调用」的 Rules of Hooks 契约。
 
 ## 已知限制
 

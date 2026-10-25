@@ -2137,23 +2137,28 @@ window.__ModuleLoader__.load({
 			const nodesHook = useChat ?? useSession;
 			const hookNodes = nodesHook ? nodesHook(conversationNodesOf) : [];
 
-			// Fallback: 如果 slot 未直接收到 hook（如跨槽或独立渲染），从 useSessions 查找当前会话
+			// Fallback: 如果 slot 未直接收到 hook（如跨槽或独立渲染），从 useSessions 查找当前会话。
+			// useSessions 是宿主注入的 React hook，只能在组件顶层调用；放进 useMemo 回调会违反
+			// Rules of Hooks——挂载轮（hookNodes 为空）回调执行时它的内部 hook 被追加进 hook 链，
+			// 下一轮（自身 effect 的 bump() 必然触发）memo 因 deps 未变跳过回调，链上后续 hook
+			// 与上一轮错位配对，React 在比较 deps 时抛 TypeError，整个槽位入口随之崩溃。
+			const useSessions = safeProps.useSessions;
+			const fallbackSnapshot = typeof useSessions === "function"
+				? useSessions((s) => {
+					if (!s || !s.current) return null;
+					const b = safeProps.sessions && typeof safeProps.sessions.binding === "function"
+						? safeProps.sessions.binding(s.current) : null;
+					return b && b.session ? b.session.getSnapshot() : null;
+				})
+				: null;
 			const currentSessionNodes = useMemo(() => {
 				if (Array.isArray(hookNodes) && hookNodes.length > 0) return hookNodes;
-				const useSessions = safeProps.useSessions;
-				if (typeof useSessions !== "function") return [];
 				try {
-					const snap = useSessions((s) => {
-						if (!s || !s.current) return null;
-						const b = safeProps.sessions && typeof safeProps.sessions.binding === "function"
-							? safeProps.sessions.binding(s.current) : null;
-						return b && b.session ? b.session.getSnapshot() : null;
-					});
-					return conversationNodesOf(snap);
+					return conversationNodesOf(fallbackSnapshot);
 				} catch (_) {
 					return [];
 				}
-			}, [hookNodes, safeProps.useSessions, safeProps.sessions]);
+			}, [hookNodes, fallbackSnapshot]);
 
 			const activeNodes = (Array.isArray(hookNodes) && hookNodes.length > 0)
 				? hookNodes
@@ -2725,6 +2730,7 @@ window.__ModuleLoader__.load({
 			userText,
 			buildOutlineItems,
 			conversationNodesOf,
+			HistoryOutlinePanelInner,
 		});
 		return module.exports;
 	}
