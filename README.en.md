@@ -23,6 +23,7 @@ Version history: 1.1.0 merged the whole former `dsh-outline` plugin and renamed 
 - **Keyboard** — with the panel focused, `Alt+↓` / `Alt+↑` move to the next / previous node; the listener is scoped to the panel and never steals host shortcuts.
 - **Reading position memory** — each session remembers the outline node you last looked at, and the panel lands there when you come back.
 - **Empty state** — "No outline content yet" until the session has questions or headings.
+- **First-paint placeholder** — after a reload, while the host's session / chat data is not ready yet, the panel position shows "Reading conversation…" and the panel component mounts only once data is ready (no more empty-state flash). If the host still has no session binding after 2 seconds, the panel mounts anyway and shows the empty state.
 - Persisted state: `pinned` / drag position / view tier / rail toggle / default level / per-session bookmarks / per-session reading position — all in `localStorage` under the `dsh-conversation:` prefix.
 
 ## How it works
@@ -35,7 +36,7 @@ Version history: 1.1.0 merged the whole former `dsh-outline` plugin and renamed 
 Client behaviour:
 
 1. Takes two required services via `inject: ["slots", "sessions"]`; if either is missing it warns and disables the panel. `apply()` also captures the `sessions` / `uiSession` services into a plugin-private host bridge.
-2. Registers `dsh-conversation` (`order: 100`) in the `conversation.session.header.actions` slot and merges `store` / `host` **last** into the slot props — empty owner props, or a third-party header passing a different shape, cannot override them.
+2. Registers `dsh-conversation` (`order: 100`) in the `conversation.session.header.actions` slot and merges `store` / `host` **last** into the slot props — empty owner props, or a third-party header passing a different shape, cannot override them. While `pinned` and the session binding is not ready yet, it renders a placeholder and mounts the panel component only once data is ready (`panelMountStateOf`, with a 2-second timeout fallback).
 3. Two data paths: the slot props `useChat` / `useSession` / `useSessions` injected by older hosts or third-party headers win when present; when they are absent the panel reads `uiSession.current` → `hooks.chat` (ChatSnapshot) and `hooks.session` (`hasMore` / `loadOlder`). Both paths normalise through `conversationNodesOf` and an `Array.isArray` guard; if neither yields data the panel renders its empty state.
 4. `buildOutlineItems` flattens the snapshot into outline items: user/steering → level 0 (counting that turn's tools and text volume); assistant text blocks become level 1–6 by ATX heading (`^#{1,6}\s+`, `#` inside fenced code blocks skipped); streaming `partial` headings appear live with a breathing animation; non-prose nodes (tool-call / context) are counted but never enter the outline.
 5. `OutlineManager` owns level, search (with scope) and bookmark state, synced to `localStorage`; tree building, collapse restoration, visible-row flattening and reveal-on-locate are pure functions.

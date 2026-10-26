@@ -23,6 +23,7 @@ Web 端「会话大纲」插件：在页面右上角贡献一个浮动面板，�
 - **键盘**：面板聚焦时 `Alt+↓ / Alt+↑` 跳到下一个 / 上一个节点（只在面板内监听，不抢宿主按键）。
 - **阅读位置记忆**：每个会话记录上次看到的大纲节点，切回来时面板直接落在那里。
 - **空态**：会话里还没有提问/标题时显示「暂无大纲内容」。
+- **首屏占位**：刷新后宿主会话/chat 数据尚未就绪时，先在面板位置显示占位「正在读取会话…」，就绪后才挂载面板（不再先闪一下空态）；宿主超过 2 秒仍未给出会话绑定就照常挂载并展示空态。
 - 状态持久化：`pinned` / 拖拽位置 / 视图档位 / 刻度条开关 / 默认展开层级 / 每会话收藏 / 每会话阅读位置，全部走 `localStorage`（键前缀 `dsh-conversation:`）。
 
 ## 实现方式
@@ -35,7 +36,7 @@ Web 端「会话大纲」插件：在页面右上角贡献一个浮动面板，�
 客户端半行为：
 
 1. 通过 `inject: ["slots", "sessions"]` 取两个必需服务，缺失则打警告并禁用面板；`apply()` 同时把 `sessions` / `uiSession` 服务抓进插件私有的 host bridge。
-2. 在 `conversation.session.header.actions` 槽位注册 `dsh-conversation`（`order: 100`），把 `store` / `host` 合并在槽位 props 的最后 —— 宿主传空 props、或第三方 header 传另一套形状，都覆盖不掉它们。
+2. 在 `conversation.session.header.actions` 槽位注册 `dsh-conversation`（`order: 100`），把 `store` / `host` 合并在槽位 props 的最后 —— 宿主传空 props、或第三方 header 传另一套形状，都覆盖不掉它们。`pinned` 且会话绑定未就绪时先渲染占位，就绪后再挂载面板组件（`panelMountStateOf`，2 秒超时兜底）。
 3. 数据有两条路：slot props 的 `useChat` / `useSession` / `useSessions`（旧宿主 / 第三方 header 注入）优先；它们缺失时读 `uiSession.current` 的 `hooks.chat`（ChatSnapshot）与 `hooks.session`（`hasMore` / `loadOlder`）。两条路的结果都经 `conversationNodesOf` 归一，再用 `Array.isArray` 兜底；都拿不到就是空态。
 4. `buildOutlineItems` 把快照摊平成大纲项：user/steering → level 0（同时统计该轮工具数与正文字数）；assistant 的 text block 按 ATX 标题（`^#{1,6}\s+`，跳过围栏代码块内的 `#`）→ level 1~6；流式中的 `partial` 标题实时出现并带呼吸动画；tool-call / context 等非正文节点只计数、不进大纲。
 5. `OutlineManager` 持有层级、搜索（含范围）、收藏状态并与 localStorage 同步；折树 / 折叠恢复 / 可见行压平 / 定位揭示都是纯函数。
