@@ -50,6 +50,7 @@ Client behaviour:
 - **Both snapshot contracts**: the new `snapshot.nodes[]` + `snapshot.partial`, and the legacy `snapshot.chat.{order, nodes(Map)}` + `node.data.content`. A shape mismatch yields an empty list, never an exception.
 - **Hardened slot data source**: the `conversation.session.header.actions` owner props can be empty (dsh 0.2.0-rc.2 renders the slot with `renderSlot(..., {})`), and a third-party header such as `dsh-better-sidebar` may pass a different shape entirely. The panel prefers hooks injected through slot props and falls back to `uiSession.current` → `hooks.chat` / `hooks.session`; when neither path has data it renders the empty state instead of taking down the slot.
 - **Host API degradation**: the shapes of `slots` / `sessions` / `uiSession` and every store's `getSnapshot` / `subscribe` are probed layer by layer with exceptions swallowed; a rename or removal only degrades this panel to its empty state, it never takes down other plugins in the same slot.
+- **One-shot compatibility diagnostics**: the first non-empty snapshot logs one `console.info` line with the actual structure (`legacy.nodes` / `nodes` / `chat.order` …) and row count; an unrecognised structure logs one `console.warn` naming the keys it saw. The first rendered outline probes the host DOM contract (`data-conversation-scroll` / `data-chat-flow-kind` / anchor attributes) and logs one `console.warn` when an attribute is missing or renamed, stating that exact-anchor jumps degraded to text-order matching. Both logs fire at most once per page load and change no fallback behaviour.
 - **Bilingual copy**: the plugin ships its own zh/en dictionary and falls back by `navigator.language`; if the host injects a usable `t` that wins.
 
 ## Design notes and provenance
@@ -118,11 +119,15 @@ only ever called at the top level of the component. `test/host-service.test.js` 
 registered by `apply()` and locks in two more contracts: with empty host slot props the outline is built
 from the `uiSession` / `sessions` services, and missing services or hostile props only degrade to the
 empty state.
+`test/diagnostics.test.js` locks in the DOM-contract probe matrix, the snapshot-shape matrix, and the
+"at most one line per page load" rule for both diagnostics.
 
 ## Known limitations
 
-- Click-to-locate depends on the host's DOM contract (`data-chat-anchor-key` or `data-chat-flow-kind`);
-  if those attributes are renamed wholesale, new candidates must be added in `locateByKey` / `collectUserRows`.
+- Click-to-locate depends on the host's DOM contract (`data-chat-anchor-key` / `data-message-key` / `data-node-key`
+  or `data-chat-flow-kind`); if those attributes are renamed wholesale, new candidates must be added in
+  `locateByKey` / `collectUserRows`. The plugin probes the contract once after the first rendered outline and logs
+  a single `console.warn` when something is missing (see "One-shot compatibility diagnostics").
 - The service path follows the host's "main view" binding (`uiSession.current`): the slot's owner props carry no
   `sessionId`, so on a subagent session header the panel still shows the main session's outline. A `sessionId`
   supplied through props, if the host ever adds one, takes precedence.

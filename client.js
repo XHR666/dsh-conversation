@@ -1450,6 +1450,18 @@ window.__ModuleLoader__.load({
 		const FLASH_CLASS = "dsh-conv-flash";
 		const FLASH_MS = 1600;
 
+		/**
+		 * 面板依赖的宿主 DOM 契约（点击定位 / 阅读位置跟随）。宿主整体改名时，
+		 * 精确定位会退化为文本顺序匹配 —— 这里只负责探测与一次性告警，不改变容错行为。
+		 */
+		const DOM_CONTRACT = Object.freeze({
+			scroll: "[data-conversation-scroll]",
+			flowKind: "[data-chat-flow-kind]",
+			anchorKey: "[data-chat-anchor-key]",
+			messageKey: "[data-message-key]",
+			nodeKey: "[data-node-key]",
+		});
+
 		function findChatRoot() {
 			try {
 				const slotRoot = document.querySelector('[data-slot="conversation"]');
@@ -1487,6 +1499,117 @@ window.__ModuleLoader__.load({
 			} catch (e) {
 				return [];
 			}
+		}
+
+		// 一次性诊断状态：宿主契约变化时控制台只提示一次，避免刷屏。
+		let domContractReported = false;
+		let snapshotShapeReported = false;
+
+		/** 探测宿主 DOM 契约；纯读取，返回 { ok, missing, present }。 */
+		function probeDomContract(doc) {
+			const target = doc !== null && doc !== undefined && typeof doc.querySelector === "function" ? doc : null;
+			const has = (selector) => {
+				if (target === null) return false;
+				try {
+					return target.querySelector(selector) !== null;
+				} catch (_) {
+					return false;
+				}
+			};
+			const present = {
+				scroll: has(DOM_CONTRACT.scroll),
+				flowKind: has(DOM_CONTRACT.flowKind),
+				anchorKey: has(DOM_CONTRACT.anchorKey),
+				messageKey: has(DOM_CONTRACT.messageKey),
+				nodeKey: has(DOM_CONTRACT.nodeKey),
+			};
+			const missing = [];
+			if (!present.scroll) missing.push("data-conversation-scroll");
+			if (!present.flowKind) missing.push("data-chat-flow-kind");
+			// 三个锚点属性是等价候选：只要有一个在，精确定位就还可用。
+			if (!present.anchorKey && !present.messageKey && !present.nodeKey) {
+				missing.push("data-chat-anchor-key | data-message-key | data-node-key");
+			}
+			return { ok: missing.length === 0, missing, present };
+		}
+
+		/** 一次性 DOM 契约诊断：缺失/改名时明确告知降级后果，健康时也留一条 info。 */
+		function reportDomContractOnce(doc) {
+			if (domContractReported) return;
+			domContractReported = true;
+			const report = probeDomContract(doc);
+			if (report.ok) {
+				console.info("[conversation] DOM contract OK: data-conversation-scroll, data-chat-flow-kind, anchor keys");
+				return;
+			}
+			console.warn(
+				"[conversation] DOM contract changed or missing: " + report.missing.join(", ")
+				+ " — click-to-locate falls back to text-order matching (data-chat-flow-kind + heading text) "
+				+ "instead of exact anchors. If the host renamed these attributes, add the new names in "
+				+ "locateByKey / findChatScrollContainer / collectUserRows.",
+			);
+		}
+
+		/** 快照形状（与 snapshotRows 的判定顺序一致，便于对照日志）。 */
+		function snapshotShapeOf(snapshot) {
+			if (snapshot === null || snapshot === undefined) return "absent";
+			if (Array.isArray(snapshot)) return "array";
+			if (typeof snapshot !== "object") return "non-object";
+			const legacy = snapshot.legacy;
+			if (legacy !== null && legacy !== undefined && typeof legacy === "object" && Array.isArray(legacy.nodes)) {
+				return "legacy.nodes";
+			}
+			if (Array.isArray(snapshot.nodes)) return "nodes";
+			if (Array.isArray(snapshot.items)) return "items";
+			if (Array.isArray(snapshot.messages)) return "messages";
+			if (snapshot.chat !== null && snapshot.chat !== undefined && typeof snapshot.chat === "object"
+				&& Array.isArray(snapshot.chat.order)) {
+				return "chat.order";
+			}
+			if (snapshot.nodes !== null && snapshot.nodes !== undefined && typeof snapshot.nodes === "object"
+				&& typeof snapshot.nodes.values === "function") {
+				return "nodes.values";
+			}
+			return "unknown";
+		}
+
+		/** 像 ChatSnapshot、但形状不认识：值得报一次，避免宿主改结构后静默空态。 */
+		function looksLikeChatSnapshot(snapshot) {
+			if (snapshot === null || typeof snapshot !== "object" || Array.isArray(snapshot)) return false;
+			for (const key of ["legacy", "nodes", "items", "messages", "chat", "order", "partial"]) {
+				if (Object.prototype.hasOwnProperty.call(snapshot, key)) return true;
+			}
+			return false;
+		}
+
+		/**
+		 * 一次性快照形状诊断：新旧结构（legacy.nodes / nodes / chat.order …）都支持，
+		 * 这里只把「这次实际用的是哪种 + 行数」打出来；陌生形状明确警告。
+		 * 数据还没到时（absent / non-object）不消耗这次机会。
+		 */
+		function reportSnapshotShapeOnce(snapshot, rowCount) {
+			if (snapshotShapeReported) return;
+			const shape = snapshotShapeOf(snapshot);
+			if (shape === "absent" || shape === "non-object") return;
+			if (shape === "unknown" && looksLikeChatSnapshot(snapshot) === false) return;
+			snapshotShapeReported = true;
+			const rows = typeof rowCount === "number" ? rowCount : safeNodesOf(snapshot).length;
+			if (shape === "unknown") {
+				console.warn(
+					"[conversation] unrecognised session snapshot shape; the outline stays empty. "
+					+ "Expected legacy.nodes[] / nodes[] / items[] / messages[] / chat.{order,nodes}. "
+					+ "Keys seen: " + Object.keys(snapshot).join(", "),
+				);
+				return;
+			}
+			console.info("[conversation] session snapshot shape: " + shape + " (" + rows
+				+ (rows === 1 ? " row)" : " rows)"));
+		}
+
+		/** 测试用：重置一次性诊断标记（生产代码不调用）。 */
+		function resetDiagnostics() {
+			domContractReported = false;
+			snapshotShapeReported = false;
 		}
 
 		function compactText(value) {
@@ -2349,7 +2472,14 @@ window.__ModuleLoader__.load({
 			const propUseSession = typeof safeProps.useSession === "function" ? safeProps.useSession : undefined;
 			const propUseSessions = typeof safeProps.useSessions === "function" ? safeProps.useSessions : undefined;
 			const propNodesHook = propUseChat !== undefined ? propUseChat : propUseSession;
-			const propNodes = propNodesHook === undefined ? null : safeNodesOf(propNodesHook(conversationNodesOf));
+			// 选择器取原始快照（身份选择器）：诊断日志要报「宿主给的形状」，而不是归一后的数组。
+			// 归一统一走 safeNodesOf，宿主 selector 的语义不再决定插件的数据形状。
+			const propSnapshot = propNodesHook === undefined ? null : propNodesHook((snapshot) => snapshot);
+			// useMemo 保证「空快照 ⇒ []」的引用稳定：否则每轮渲染新数组会让 items/effect 反复触发。
+			const propNodes = useMemo(
+				() => (propSnapshot === null ? null : safeNodesOf(propSnapshot)),
+				[propSnapshot],
+			);
 			const propHasMore = propUseSession === undefined ? false : propUseSession((s) => s?.hasMore === true) === true;
 			const propLoadingOlder = propUseSession === undefined ? false : propUseSession((s) => s?.loadingOlder === true) === true;
 			const propCurrentId = propUseSessions === undefined
@@ -2379,6 +2509,11 @@ window.__ModuleLoader__.load({
 				if (hostSession.nodes.length > 0) return hostSession.nodes;
 				return safeNodesOf(propFallbackSnapshot);
 			}, [propNodes, hostSession.nodes, propFallbackSnapshot]);
+
+			// 诊断用原始快照：与实际驱动大纲的那一份保持一致（props 优先，其次服务，最后旧回退）。
+			const observedSnapshot = (Array.isArray(propNodes) && propNodes.length > 0)
+				? propSnapshot
+				: (hostSession.snapshot !== null ? hostSession.snapshot : propFallbackSnapshot);
 
 			const hasMore = propHasMore === true || hostSession.hasMore === true;
 			const loadingOlder = propLoadingOlder === true || hostSession.loadingOlder === true;
@@ -2466,6 +2601,16 @@ window.__ModuleLoader__.load({
 					return [];
 				}
 			}, [activeNodes]);
+
+			// 一次性诊断（每次页面加载最多各一条）：快照形状 + 宿主 DOM 契约。
+			// 只在真实渲染路径上打，普通单测直接调纯函数不会触发。
+			const diagnosticsReady = items.length > 0;
+			useEffect(() => {
+				if (observedSnapshot !== null && observedSnapshot !== undefined) {
+					reportSnapshotShapeOnce(observedSnapshot, activeNodes.length);
+				}
+				if (diagnosticsReady === true) reportDomContractOnce(document);
+			}, [observedSnapshot, diagnosticsReady]);
 
 			if (items.length > 0 && manager.items.length === 0) {
 				manager.setItems(items);
@@ -3080,6 +3225,11 @@ window.__ModuleLoader__.load({
 			HistoryOutlineSlot,
 			HistoryOutlinePlaceholder,
 			panelMountStateOf,
+			probeDomContract,
+			snapshotShapeOf,
+			reportDomContractOnce,
+			reportSnapshotShapeOnce,
+			resetDiagnostics,
 			readHostService,
 			createHostBridge,
 			mainSessionIdOf,

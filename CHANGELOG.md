@@ -6,6 +6,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- **一次性兼容性诊断日志（快照形状 + 宿主 DOM 契约）。**
+  - 之前的行为：插件对宿主 DOM 属性（`data-chat-anchor-key` / `data-message-key` / `data-node-key` /
+    `data-chat-flow-kind` / `data-conversation-scroll`）和会话快照结构（`legacy.nodes` / `nodes` /
+    `chat.{order,nodes}` …）都做多候选兼容，但降级是**静默**的：宿主改名后用户只看到「点了不跳」或
+    「面板空着」，控制台没有任何可排查的线索，也无从判断当前用的是哪一代契约。
+  - 现在的行为：首次拿到有内容的快照时打印一条 `console.info`，记录实际结构与本轮行数
+    （例如 `session snapshot shape: legacy.nodes (12 rows)`）；结构陌生但明显像 ChatSnapshot 时打印一条
+    `console.warn` 并列出实际键名。首次渲染出大纲时探测 DOM 契约：齐全打一条 info；缺失/改名打一条
+    warn，明确写出缺哪些属性、以及已降级为「按文本顺序匹配」而不是「按 key 精确定位」。
+    两类日志每次页面加载最多各一条（`resetDiagnostics()` 仅供测试），不刷屏、不改变任何容错行为。
+  - 回归判据：新增 `test/diagnostics.test.js` —— DOM 契约齐全 / 缺项 / 只有等价锚点的探测矩阵；健康与
+    降级两种日志都只输出一次；快照形状矩阵（含 `nodes.values` 与陌生形状）；陌生形状告警；数据尚未
+    到达（`undefined` / `{}`）时不消耗那次机会。
+
 ### Fixed
 
 - **修复「面板展开状态下刷新页面 → 整个槽位入口（含常驻『大纲』按钮）消失」的崩溃。**
