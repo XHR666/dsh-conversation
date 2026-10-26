@@ -34,9 +34,9 @@ Version history: 1.1.0 merged the whole former `dsh-outline` plugin and renamed 
 
 Client behaviour:
 
-1. Takes two required services via `inject: ["slots", "sessions"]`; if either is missing it warns and disables the panel.
-2. Registers `question-history` (`order: 100`) in the `shell.overlay` slot, passing `store` / `sessions` down instead of relying on face injection.
-3. `sessions.binding(id)` obtains the current session face and subscribes to `getSnapshot()` via `useSyncExternalStore`.
+1. Takes two required services via `inject: ["slots", "sessions"]`; if either is missing it warns and disables the panel. `apply()` also captures the `sessions` / `uiSession` services into a plugin-private host bridge.
+2. Registers `dsh-conversation` (`order: 100`) in the `conversation.session.header.actions` slot and merges `store` / `host` **last** into the slot props — empty owner props, or a third-party header passing a different shape, cannot override them.
+3. Two data paths: the slot props `useChat` / `useSession` / `useSessions` injected by older hosts or third-party headers win when present; when they are absent the panel reads `uiSession.current` → `hooks.chat` (ChatSnapshot) and `hooks.session` (`hasMore` / `loadOlder`). Both paths normalise through `conversationNodesOf` and an `Array.isArray` guard; if neither yields data the panel renders its empty state.
 4. `buildOutlineItems` flattens the snapshot into outline items: user/steering → level 0 (counting that turn's tools and text volume); assistant text blocks become level 1–6 by ATX heading (`^#{1,6}\s+`, `#` inside fenced code blocks skipped); streaming `partial` headings appear live with a breathing animation; non-prose nodes (tool-call / context) are counted but never enter the outline.
 5. `OutlineManager` owns level, search (with scope) and bookmark state, synced to `localStorage`; tree building, collapse restoration, visible-row flattening and reveal-on-locate are pure functions.
 6. Click-to-locate tries the host's internal anchors `[data-chat-anchor-key]` → `[data-message-key]` → `[data-node-key]`, then falls back to matching `data-chat-flow-kind` order plus a text check; when nothing matches it says "this node cannot be located right now" rather than silently scrolling to the wrong place.
@@ -47,7 +47,8 @@ Client behaviour:
 ## Compatibility
 
 - **Both snapshot contracts**: the new `snapshot.nodes[]` + `snapshot.partial`, and the legacy `snapshot.chat.{order, nodes(Map)}` + `node.data.content`. A shape mismatch yields an empty list, never an exception.
-- **Host API degradation**: the shapes of `slots` / `sessions` and the face's `getSnapshot` / `subscribe` are probed layer by layer; a rename or removal only makes this panel disappear, it never takes down other plugins in the same slot.
+- **Hardened slot data source**: the `conversation.session.header.actions` owner props can be empty (dsh 0.2.0-rc.2 renders the slot with `renderSlot(..., {})`), and a third-party header such as `dsh-better-sidebar` may pass a different shape entirely. The panel prefers hooks injected through slot props and falls back to `uiSession.current` → `hooks.chat` / `hooks.session`; when neither path has data it renders the empty state instead of taking down the slot.
+- **Host API degradation**: the shapes of `slots` / `sessions` / `uiSession` and every store's `getSnapshot` / `subscribe` are probed layer by layer with exceptions swallowed; a rename or removal only degrades this panel to its empty state, it never takes down other plugins in the same slot.
 - **Bilingual copy**: the plugin ships its own zh/en dictionary and falls back by `navigator.language`; if the host injects a usable `t` that wins.
 
 ## Design notes and provenance
@@ -59,7 +60,7 @@ The **feature choices** here were informed by publicly described functionality a
 | Component | Supported baseline |
 | --- | --- |
 | Node.js | >= 22.19 |
-| DSH | >= 0.1.5-rc.2 < 1.0.0 (certified on 0.1.5-rc.2) |
+| DSH | >= 0.1.5-rc.2 < 1.0.0 \|\| >= 0.2.0-rc.1 < 1.0.0 (certified on 0.1.5-rc.2; 0.2.x adapted) |
 | react | ^18.2.0 (provided by the host) |
 | Surface | `web` (`dsh.client.platform`) |
 
@@ -112,12 +113,18 @@ the real loader, which is why the client stays a single self-contained file — 
 a minimal loader stub and asserts the pure helpers it exports as `internals`; `test/hooks-order.test.js`
 additionally drives `internals.HistoryOutlinePanelInner` through two renders with a React stub that skips
 memo callbacks on unchanged deps, locking in the Rules-of-Hooks contract that host-injected hooks are
-only ever called at the top level of the component.
+only ever called at the top level of the component. `test/host-service.test.js` drives the slot component
+registered by `apply()` and locks in two more contracts: with empty host slot props the outline is built
+from the `uiSession` / `sessions` services, and missing services or hostile props only degrade to the
+empty state.
 
 ## Known limitations
 
 - Click-to-locate depends on the host's DOM contract (`data-chat-anchor-key` or `data-chat-flow-kind`);
   if those attributes are renamed wholesale, new candidates must be added in `locateByKey` / `collectUserRows`.
+- The service path follows the host's "main view" binding (`uiSession.current`): the slot's owner props carry no
+  `sessionId`, so on a subagent session header the panel still shows the main session's outline. A `sessionId`
+  supplied through props, if the host ever adds one, takes precedence.
 - The panel is `fixed`-positioned, so it can overlap other top-right floating plugins — they have to offset
   their `top`. The rail hugs the right edge centred, so it will visually collide with a similar navigation
   plugin if both are enabled.

@@ -102,7 +102,9 @@ test('loader contract: id, exports and declared services', () => {
 
 test('internals expose exactly the pure helpers', () => {
   assert.deepEqual(Object.keys(api.internals).sort(), [
-    'HistoryOutlinePanelInner', 'buildOutlineItems', 'conversationNodesOf', 'snapshotRows', 'textBlocks', 'userText',
+    'HistoryOutlinePanelInner', 'HistoryOutlineSlot', 'buildOutlineItems', 'conversationNodesOf',
+    'createHostBridge', 'mainSessionIdOf', 'makeSessionBindingSelector', 'readHostService',
+    'safeNodesOf', 'snapshotRows', 'snapshotSourceOf', 'textBlocks', 'userText',
   ])
   for (const [name, fn] of Object.entries(api.internals)) assert.equal(typeof fn, 'function', `${name} must be a function`)
 })
